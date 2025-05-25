@@ -1,0 +1,134 @@
+import pandas as pd
+import os
+from dotenv import load_dotenv
+from datetime import datetime
+from openai import OpenAI
+import re
+import time
+import sys
+
+# Charger les variables d'environnement
+load_dotenv()
+API_KEY = os.getenv("PERPLEXITY_API_KEY") or "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"
+
+# API Perplexity
+client = OpenAI(api_key=API_KEY, base_url="https://api.perplexity.ai")
+
+# Paramètres
+EXCEL_FILE = "Group_7_holdings.xlsx"
+SHEET_NAME = "Sheet1"
+
+# Nouveau prompt structuré
+BASE_PROMPT = """
+**Question**  
+Est-ce que la marque {brand} appartient toujours à la holding {holding} ?
+
+**Rôle**  
+Expert en veille commerciale & analyste M&A certifié
+
+**Consignes opérationnelles**  
+1. **Triple vérification croisée**  
+   - Vérifier via 3 sources indépendantes parmi :  
+     - Bases d'entreprises (Infogreffe, Pappers)  
+     - Actualités économiques (Les Échos, Capital Finance)  
+     - Communiqués presse officiels  
+     - Plateformes M&A spécialisées (Fusacq, MergerMarket)
+
+2. **Critères de fiabilité**  
+   ✅ Sources de moins de 6 mois  
+   ✅ Données primaires (Kbis, rapports annuels)  
+   ✅ Citations multiples concordantes
+
+3. **Analyse de certitude**  
+   - 100 = confirmation unanime + documentation légale  
+   - 90 = 2 sources fiables + absence de contradiction  
+   - <70 = divergence entre sources
+
+OUTPUT structurée: 
+Si Oui, Niveau de certitude
+Si Non, Niveau de certitude, La nouvelle holding actuelle
+
+Je ne veux pas de phrase, ni d'explication.
+
+"""
+
+# Fonction API
+def query_perplexity(prompt):
+    messages = [
+        {"role": "system", "content": "Tu es un expert en veille stratégique, M&A et marques internationales."},
+        {"role": "user", "content": prompt},
+    ]
+    try:
+        response = client.chat.completions.create(
+            model="sonar-deep-research",
+            messages=messages,
+            extra_body={"search_domain_filter": ["-wikipedia.org"]}
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"❌ Erreur API : {e}")
+        return "Erreur"
+
+# Barre de chargement verte
+def barre_de_chargement(duree=5):
+    barre = ["▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]
+    print("\033[92mRecherche en cours :", end=" ", flush=True)  # Vert
+    for i in range(duree * 4):  # 4 étapes par seconde
+        sys.stdout.write(barre[i % len(barre)])
+        sys.stdout.flush()
+        time.sleep(0.25)
+        sys.stdout.write('\b')
+    print("✅\033[0m")  # Réinitialiser couleur
+
+# Charger Excel
+df = pd.read_excel(EXCEL_FILE, sheet_name=SHEET_NAME)
+
+# Créer les colonnes manquantes
+for col in ["Statut", "Score", "Date de vérification", "NEW Holding"]:
+    if col not in df.columns:
+        df[col] = ""
+
+# Traitement
+today_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+for index, row in df.head(1).iterrows():  # Limite à 40 lignes
+    holding = str(row["Main Holding Name"])
+    brand = str(row["Brand Name"])
+
+    print(f"\n🔍 Recherche pour : {brand} / Holding : {holding}")
+    prompt = BASE_PROMPT.format(brand=brand, holding=holding)
+    result = query_perplexity(prompt)
+
+    # Parsing
+    cleaned_result = result.replace(",", ".")
+    match = re.search(r"(Oui|Non)[^\d]*(\d{1,3})", cleaned_result)
+
+    if match:
+        statut, score = match.groups()
+        score_int = int(score)
+    else:
+        statut, score, score_int = "Erreur", "", 0
+        print(f"⚠️ Réponse inattendue : {result}")
+
+    new_holding = ""
+    if statut == "Non" and score_int > 85:
+        match_holding = re.search(r"(?i)non\s+\d+\s*\+?\s*(.*)", cleaned_result)
+        if match_holding:
+            new_holding = match_holding.group(1).strip()
+        else:
+            new_holding = "Non précisée"
+
+    # MAJ du fichier
+    df.at[index, "Statut"] = statut
+    df.at[index, "Score"] = score
+    df.at[index, "Date de vérification"] = today_str
+    df.at[index, "NEW Holding"] = new_holding
+
+    # Affichage barre de chargement
+    barre_de_chargement()
+
+# Sauvegarde dans un nouveau fichier avec la date et l’heure
+date_str = datetime.now().strftime("%Y-%m-%d_%H-%M")
+output_file = f"CarrefourVC_{date_str}.xlsx"
+df.to_excel(output_file, index=False)
+print(f"\n✅ Nouveau fichier créé : {output_file}")
