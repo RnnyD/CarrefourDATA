@@ -42,8 +42,8 @@ sys
 ## Fichier Excel attendu
 
 2 fichiers sont attendus : 
-Un fichier CarrefourVC_
-Un fichier NewBrandsDetection_
+- Un fichier CarrefourVC_
+- Un fichier NewBrandsDetection_
 
 Le script ajoutera les colonnes suivantes :
 
