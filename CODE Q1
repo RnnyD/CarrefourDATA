@@ -9,7 +9,7 @@ from datetime import datetime
 
 # Charger la clé API depuis le fichier .env
 load_dotenv()
-API_KEY = os.getenv("PERPLEXITY_API_KEY") or "pplx-xxx"  # Remplace par ta clé valide
+API_KEY = os.getenv("PERPLEXITY_API_KEY") or "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"
 
 # Paramètres
 EXCEL_FILE = "Group_7_holdings.xlsx"
