@@ -45,6 +45,3 @@ sys
 - Un fichier CarrefourVC_
 - Un fichier NewBrandsDetection_
 
-Le script ajoutera les colonnes suivantes :
-
-
