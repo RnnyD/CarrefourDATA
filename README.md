@@ -4,8 +4,9 @@ Projet de veille Fusion Acquisition pour CARREFOUR
 
 # CAS D'usage
 
-Ce script Python permet de **vérifier automatiquement** si une marque appartient toujours à une holding donnée, en utilisant PERPLEXITY et des critères professionnels de veille stratégique.
-
+Le projet a poiur objectif de d'actualiser le fichier. 
+1. Actualisé l'appartenance ou non d'une marque à la holding ainsi qu'avoir la nouvelle holding si nécessaire
+2. Connaître l'acquisition de nouvelle marques des holdings présentes dans le fichier 
 ---
 
 ## Objectif
@@ -40,20 +41,10 @@ sys
 
 ## Fichier Excel attendu
 
-Le fichier source doit s’appeler `Group_7_holdings.xlsx` et contenir une feuille `Sheet1` avec les colonnes suivantes :
-
-| Main Holding Name | Brand Name |
-|-------------------|------------|
-|                   |            |
-|                   |            |
+2 fichiers sont attendus : 
+Un fichier CarrefourVC_
+Un fichier NewBrandsDetection_
 
 Le script ajoutera les colonnes suivantes :
 
-- `Statut` : Oui / Non / Erreur
-- `Score` : niveau de certitude (sur 100)
-- `Date de vérification`
-- `NEW Holding` : nom du nouveau propriétaire si différent (si score > 85)
-
-Fichier généré
-CarrefourVC_YYYY-MM-DD_HH-MM.xlsx
 
