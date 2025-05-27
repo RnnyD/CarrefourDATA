@@ -1,0 +1,130 @@
+import pandas as pd
+import os
+from dotenv import load_dotenv
+from datetime import datetime
+import re
+import time
+import sys
+import requests
+import json
+
+# Charger la clé API depuis le fichier .env
+load_dotenv()
+API_KEY = os.getenv("PERPLEXITY_API_KEY") or "pplx-xxx"  # Remplace par ta clé valide si nécessaire
+
+# Paramètres
+EXCEL_FILE = "Group_7_holdings.xlsx"
+SHEET_NAME = "Sheet1"
+PERPLEXITY_URL = "https://api.perplexity.ai/chat/completions"
+
+# Prompt
+BASE_PROMPT = """
+**Question**  
+Est-ce qu’il existe de **nouvelles marques récentes** rattachées à la **même gamme ou segment de marché que {brand}**, et détenues par la holding {holding} ?
+
+**Rôle**  
+Expert en veille commerciale & analyste M&A certifié
+
+**Consignes opérationnelles**  
+1. **Vérification croisée avancée**  
+   - Identifier jusqu’à **3 nouvelles marques** pertinentes, en excluant celles déjà connues ou listées  
+   - S’assurer qu’elles appartiennent clairement à la même gamme/segment que {brand}
+
+2. **Sources autorisées**  
+   - Bases d’entreprises (Infogreffe, Pappers)  
+   - Communiqués de presse corporate  
+   - Médias économiques fiables (Les Échos, Capital Finance, LSA, Usine Nouvelle)  
+   - Plateformes M&A (Fusacq, MergerMarket)
+
+3. **Critères de fiabilité**  
+   ✅ Lien explicite avec {brand} ou la gamme concernée  
+   ✅ Source datée   
+   ✅ Mention claire de la détention par {holding}  
+
+4. **Filtrage obligatoire**  
+   - ❌ Exclure les doublons ou marques déjà présentes dans les bases existantes  
+   - ❌ Ne pas mentionner des produits ou des gammes, uniquement des **marques commerciales déposées**
+
+---
+
+**OUTPUT structuré (obligatoire)** :  
+Nom de la marque 1
+
+Si aucune marque détectée :  
+`Aucune nouvelle marque détectée`
+"""
+
+# Appel API Perplexity
+def query_perplexity(prompt):
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "sonar",
+        "messages": [
+            {"role": "system", "content": "Tu es un expert en veille stratégique, M&A et marques internationales."},
+            {"role": "user", "content": prompt}
+        ]
+    }
+    try:
+        response = requests.post(PERPLEXITY_URL, json=payload, headers=headers)
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        print(f"❌ Erreur API : {e}")
+        return "Erreur"
+
+# Barre de chargement
+def barre_de_chargement(duree=5):
+    barre = ["▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]
+    print("\033[92mRecherche en cours :", end=" ", flush=True)
+    for i in range(duree * 4):
+        sys.stdout.write(barre[i % len(barre)])
+        sys.stdout.flush()
+        time.sleep(0.25)
+        sys.stdout.write('\b')
+    print("✅\033[0m")
+
+# Charger le fichier Excel
+df = pd.read_excel(EXCEL_FILE, sheet_name=SHEET_NAME)
+
+# Ajouter colonne pour nouvelles marques si absente
+if "Nouvelles Marques" not in df.columns:
+    df["Nouvelles Marques"] = ""
+
+# Liste des marques connues pour éviter les doublons
+marques_connues = set(df["Brand Name"].dropna().str.lower())
+
+# Recherche par holding
+today_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+holdings_uniques = df["Main Holding Name"].dropna().unique()
+
+for holding in holdings_uniques:
+    sous_df = df[df["Main Holding Name"] == holding]
+    brand_ref = sous_df["Brand Name"].dropna().iloc[0] if not sous_df.empty else "aucune"
+
+    print(f"\n🔍 Recherche de nouvelles marques pour la holding : {holding} (exemple : {brand_ref})")
+    prompt = BASE_PROMPT.format(brand=brand_ref, holding=holding)
+    result = query_perplexity(prompt)
+
+    if result.lower().strip() == "aucune nouvelle marque détectée":
+        nouvelles_marques = "Aucune"
+    else:
+        lignes = [line.strip() for line in result.splitlines() if line.strip() and not line.startswith("`")]
+        uniques = []
+        for marque in lignes:
+            nom = marque.lower()
+            if nom not in marques_connues and nom not in [m.lower() for m in uniques]:
+                uniques.append(marque)
+                marques_connues.add(nom)
+        nouvelles_marques = ", ".join(uniques) if uniques else "Aucune"
+
+    df.loc[df["Main Holding Name"] == holding, "Nouvelles Marques"] = nouvelles_marques
+    barre_de_chargement()
+
+# Export final
+date_str = datetime.now().strftime("%Y-%m-%d_%H-%M")
+output_file = f"NewBrandsDetection_{date_str}.xlsx"
+df.to_excel(output_file, index=False)
+print(f"\n✅ Nouveau fichier créé : {output_file}")
