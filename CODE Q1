@@ -1,24 +1,22 @@
 import pandas as pd
 import os
-from dotenv import load_dotenv
-from datetime import datetime
-from openai import OpenAI
 import re
 import time
 import sys
+import requests
+from dotenv import load_dotenv
+from datetime import datetime
 
-# Charger les variables d'environnement
+# Charger la clé API depuis le fichier .env
 load_dotenv()
-API_KEY = os.getenv("PERPLEXITY_API_KEY") or "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"
-
-# API Perplexity
-client = OpenAI(api_key=API_KEY, base_url="https://api.perplexity.ai")
+API_KEY = os.getenv("PERPLEXITY_API_KEY") or "pplx-xxx"  # Remplace par ta clé valide
 
 # Paramètres
 EXCEL_FILE = "Group_7_holdings.xlsx"
 SHEET_NAME = "Sheet1"
+PERPLEXITY_URL = "https://api.perplexity.ai/chat/completions"
 
-# Nouveau prompt structuré
+# Prompt 
 BASE_PROMPT = """
 **Question**  
 Est-ce que la marque {brand} appartient toujours à la holding {holding} ?
@@ -48,23 +46,27 @@ OUTPUT structurée:
 Si Oui, Niveau de certitude
 Si Non, Niveau de certitude, La nouvelle holding actuelle
 
-Je ne veux pas de phrase, ni d'explication.
+Je ne veux pas de phrase, ni d'explication
 
 """
 
-# Fonction API
+# Fonction d’appel API
 def query_perplexity(prompt):
-    messages = [
-        {"role": "system", "content": "Tu es un expert en veille stratégique, M&A et marques internationales."},
-        {"role": "user", "content": prompt},
-    ]
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "sonar",
+        "messages": [
+            {"role": "system", "content": "Tu es un expert en veille stratégique, M&A et marques internationales."},
+            {"role": "user", "content": prompt}
+        ]
+    }
     try:
-        response = client.chat.completions.create(
-            model="sonar-deep-research",
-            messages=messages,
-            extra_body={"search_domain_filter": ["-wikipedia.org"]}
-        )
-        return response.choices[0].message.content.strip()
+        response = requests.post(PERPLEXITY_URL, headers=headers, json=payload)
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"].strip()
     except Exception as e:
         print(f"❌ Erreur API : {e}")
         return "Erreur"
@@ -72,26 +74,27 @@ def query_perplexity(prompt):
 # Barre de chargement verte
 def barre_de_chargement(duree=5):
     barre = ["▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]
-    print("\033[92mRecherche en cours :", end=" ", flush=True)  # Vert
-    for i in range(duree * 4):  # 4 étapes par seconde
+    print("\033[92mRecherche en cours :", end=" ", flush=True)
+    for i in range(duree * 4):
         sys.stdout.write(barre[i % len(barre)])
         sys.stdout.flush()
         time.sleep(0.25)
         sys.stdout.write('\b')
-    print("✅\033[0m")  # Réinitialiser couleur
+    print("✅\033[0m")
 
-# Charger Excel
+# Chargement du fichier Excel
 df = pd.read_excel(EXCEL_FILE, sheet_name=SHEET_NAME)
 
-# Créer les colonnes manquantes
+# Ajout des colonnes si absentes
 for col in ["Statut", "Score", "Date de vérification", "NEW Holding"]:
     if col not in df.columns:
         df[col] = ""
 
-# Traitement
+# Date du jour
 today_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-for index, row in df.head(1).iterrows():  # Limite à 40 lignes
+# Traitement ligne par ligne
+for index, row in df.head(40).iterrows():  # Limite à 40 lignes
     holding = str(row["Main Holding Name"])
     brand = str(row["Brand Name"])
 
@@ -99,7 +102,7 @@ for index, row in df.head(1).iterrows():  # Limite à 40 lignes
     prompt = BASE_PROMPT.format(brand=brand, holding=holding)
     result = query_perplexity(prompt)
 
-    # Parsing
+    # Analyse du résultat
     cleaned_result = result.replace(",", ".")
     match = re.search(r"(Oui|Non)[^\d]*(\d{1,3})", cleaned_result)
 
@@ -118,16 +121,15 @@ for index, row in df.head(1).iterrows():  # Limite à 40 lignes
         else:
             new_holding = "Non précisée"
 
-    # MAJ du fichier
+    # Mise à jour des valeurs dans le fichier
     df.at[index, "Statut"] = statut
     df.at[index, "Score"] = score
     df.at[index, "Date de vérification"] = today_str
     df.at[index, "NEW Holding"] = new_holding
 
-    # Affichage barre de chargement
     barre_de_chargement()
 
-# Sauvegarde dans un nouveau fichier avec la date et l’heure
+# Export final
 date_str = datetime.now().strftime("%Y-%m-%d_%H-%M")
 output_file = f"CarrefourVC_{date_str}.xlsx"
 df.to_excel(output_file, index=False)
